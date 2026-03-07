@@ -26,12 +26,13 @@ export interface TriageRecord {
 export interface Hospital {
   id: string;
   name: string;
-  type: 'PHC' | 'Government Hospital' | 'District Hospital';
+  type: string;
   distance: string;
   phone: string;
   is24h: boolean;
   lat: number;
   lng: number;
+  address?: string;
 }
 
 export interface Translation {

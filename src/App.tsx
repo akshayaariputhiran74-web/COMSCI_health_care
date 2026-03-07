@@ -81,8 +81,8 @@ const Button = ({
   );
 };
 
-const Card = ({ children, className }: { children: React.ReactNode; className?: string }) => (
-  <div className={cn('bg-white rounded-2xl shadow-sm border border-slate-100 p-6', className)}>
+const Card = ({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement> & { children: React.ReactNode; className?: string }) => (
+  <div className={cn('bg-white rounded-2xl shadow-sm border border-slate-100 p-6', className)} {...props}>
     {children}
   </div>
 );
@@ -182,14 +182,18 @@ const HomePage = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {[
-          { icon: MessageSquare, title: t.home.features.triage, color: 'bg-blue-50 text-blue-600' },
-          { icon: Stethoscope, title: t.home.features.redFlag, color: 'bg-red-50 text-red-600' },
-          // { icon: Camera, title: t.home.features.photo, color: 'bg-emerald-50 text-emerald-600' },
-          { icon: MapPin, title: t.home.features.locator, color: 'bg-orange-50 text-orange-600' },
-          { icon: History, title: t.home.features.history, color: 'bg-purple-50 text-purple-600' },
-          // { icon: Wifi, title: t.home.features.offline, color: 'bg-slate-50 text-slate-600' },
+          { icon: MessageSquare, title: t.home.features.triage, color: 'bg-blue-50 text-blue-600', page: 'triage' },
+          { icon: Stethoscope, title: t.home.features.redFlag, color: 'bg-red-50 text-red-600', page: 'triage' },
+          { icon: Camera, title: t.home.features.photo, color: 'bg-emerald-50 text-emerald-600', page: 'photo' },
+          { icon: MapPin, title: t.home.features.locator, color: 'bg-orange-50 text-orange-600', page: 'locator' },
+          { icon: History, title: t.home.features.history, color: 'bg-purple-50 text-purple-600', page: 'history' },
+          { icon: Wifi, title: t.home.features.offline, color: 'bg-slate-50 text-slate-600', page: 'home' },
         ].map((feature, i) => (
-          <Card key={i} className="flex items-center gap-4 p-4">
+          <Card
+            key={i}
+            className="flex items-center gap-4 p-4 cursor-pointer hover:ring-2 hover:ring-blue-200 hover:shadow-md transition-all active:scale-95"
+            onClick={() => setCurrentPage(feature.page)}
+          >
             <div className={cn("p-3 rounded-xl", feature.color)}>
               <feature.icon className="w-6 h-6" />
             </div>
@@ -426,37 +430,117 @@ const PhotoAnalysisPage = () => {
 };
 
 const HospitalLocatorPage = () => {
-  const hospitals: Hospital[] = [
-    { id: '1', name: 'Village PHC', type: 'PHC', distance: '1.2 km', phone: '011-1234567', is24h: true, lat: 0, lng: 0 },
-    { id: '2', name: 'District Govt Hospital', type: 'Government Hospital', distance: '12.5 km', phone: '011-7654321', is24h: true, lat: 0, lng: 0 },
-    { id: '3', name: 'City Medical Center', type: 'District Hospital', distance: '25.0 km', phone: '011-9998887', is24h: true, lat: 0, lng: 0 },
-  ];
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchHospitals = async (lat: number, lng: number) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`http://localhost:3001/api/hospitals?lat=${lat}&lng=${lng}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch hospitals from server');
+        }
+        const data = await response.json();
+
+        if (data.results) {
+          const formattedHospitals: Hospital[] = data.results.map((place: any, index: number) => ({
+            id: place.place_id || String(index),
+            name: place.name,
+            type: place.types && place.types.includes('hospital') ? 'Hospital' : 'Clinic',
+            distance: 'N/A', // Would need Distance Matrix API for real routing distance
+            phone: 'N/A', // Place Details API needed for phone number
+            is24h: place.opening_hours ? place.opening_hours.open_now : false,
+            lat: place.geometry?.location?.lat || 0,
+            lng: place.geometry?.location?.lng || 0,
+            address: place.vicinity
+          }));
+          setHospitals(formattedHospitals);
+        } else {
+          setHospitals([]);
+        }
+      } catch (err: any) {
+        console.error("Error fetching hospitals:", err);
+        setError(err.message || 'An error occurred while fetching hospitals.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if ("geolocation" in navigator) {
+      setLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          fetchHospitals(position.coords.latitude, position.coords.longitude);
+        },
+        (err) => {
+          console.error("Geolocation error:", err);
+          setError("Failed to get your location. Please enable location services.");
+          setLoading(false);
+        }
+      );
+    } else {
+      setError("Geolocation is not supported by your browser.");
+    }
+  }, []);
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold text-slate-800">Nearest Facilities</h2>
-      <div className="space-y-4">
-        {hospitals.map(h => (
-          <Card key={h.id} className="flex flex-col gap-3">
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="font-bold text-lg text-slate-900">{h.name}</h3>
-                <span className="text-sm bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{h.type}</span>
+
+      {loading && (
+        <div className="text-center p-8">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-slate-600 font-medium">Finding nearby hospitals...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-100 font-medium">
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && hospitals.length === 0 && (
+        <div className="text-center p-8 text-slate-600">
+          No hospitals found near your location.
+        </div>
+      )}
+
+      {!loading && hospitals.length > 0 && (
+        <div className="space-y-4">
+          {hospitals.map(h => (
+            <Card key={h.id} className="flex flex-col gap-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="font-bold text-lg text-slate-900">{h.name}</h3>
+                  <div className="flex gap-2 items-center mt-1">
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{h.type}</span>
+                    {h.name && <span className="text-xs text-slate-500">{h.address}</span>}
+                  </div>
+                </div>
+                <div className="text-right">
+                  {/* <p className="font-bold text-blue-600">{h.distance}</p> */}
+                  {h.is24h && <span className="text-xs text-emerald-600 font-bold">Open Now</span>}
+                </div>
               </div>
-              <div className="text-right">
-                <p className="font-bold text-blue-600">{h.distance}</p>
-                {h.is24h && <span className="text-xs text-emerald-600 font-bold">24/7 Available</span>}
+              <div className="flex gap-2 mt-2">
+                <Button variant="outline" className="flex-1 py-2 text-sm" onClick={() => window.open(`tel:${h.phone}`)} disabled={h.phone === 'N/A'}>
+                  {h.phone !== 'N/A' ? `Call ${h.phone}` : 'No Phone'}
+                </Button>
+                <Button
+                  className="flex-1 py-2 text-sm"
+                  onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}`)}
+                >
+                  Directions
+                </Button>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 py-2 text-sm" onClick={() => window.open(`tel:${h.phone}`)}>
-                Call {h.phone}
-              </Button>
-              <Button className="flex-1 py-2 text-sm">Directions</Button>
-            </div>
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
