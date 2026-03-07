@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
 import {
   Home,
   MessageSquare,
@@ -11,13 +11,16 @@ import {
   ChevronLeft,
   Menu,
   X,
-  Stethoscope
+  Stethoscope,
+  Mic,
+  MicOff,
+  Volume2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Language, Patient, TriageRecord, Hospital } from './types';
 import { TRANSLATIONS } from './constants';
 import { cn } from './utils';
-import { getTriageAssessment, analyzeSymptomPhoto } from './services/geminiService';
+import { getTriageAssessment, analyzeSymptomPhoto, translateText } from './services/geminiService';
 import {
   LineChart,
   Line,
@@ -82,7 +85,7 @@ const Button = ({
 };
 
 const Card = ({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement> & { children: React.ReactNode; className?: string }) => (
-  <div className={cn('bg-white rounded-2xl shadow-sm border border-slate-100 p-6', className)} {...props}>
+  <div className={cn('glass-card p-6', className)} {...props}>
     {children}
   </div>
 );
@@ -92,7 +95,7 @@ const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <nav className="sticky top-0 z-50 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+    <nav className="sticky top-0 z-50 bg-white/60 backdrop-blur-lg border-b border-white/20 px-4 py-3 flex items-center justify-between">
       <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentPage('home')}>
         <div className="bg-blue-600 p-2 rounded-lg">
           <Stethoscope className="text-white w-6 h-6" />
@@ -109,6 +112,8 @@ const Navbar = () => {
           <option value={Language.ENGLISH}>English</option>
           <option value={Language.HINDI}>हिन्दी</option>
           <option value={Language.KANNADA}>ಕನ್ನಡ</option>
+          <option value={Language.TAMIL}>தமிழ்</option>
+          <option value={Language.MALAYALAM}>മലയാളം</option>
         </select>
 
         <div className={cn(
@@ -137,6 +142,7 @@ const Navbar = () => {
               { id: 'triage', label: 'Start Triage', icon: MessageSquare },
               { id: 'photo', label: 'Photo Analysis', icon: Camera },
               { id: 'locator', label: 'Hospital Locator', icon: MapPin },
+              { id: 'translator', label: 'Medical Translator', icon: Volume2 },
               { id: 'history', label: 'Patient History', icon: History },
               { id: 'dashboard', label: 'Supervisor Dashboard', icon: BarChart3 },
             ].map((item) => (
@@ -186,6 +192,7 @@ const HomePage = () => {
           { icon: Stethoscope, title: t.home.features.redFlag, color: 'bg-red-50 text-red-600', page: 'triage' },
           { icon: Camera, title: t.home.features.photo, color: 'bg-emerald-50 text-emerald-600', page: 'photo' },
           { icon: MapPin, title: t.home.features.locator, color: 'bg-orange-50 text-orange-600', page: 'locator' },
+          { icon: Volume2, title: t.home.features.translator, color: 'bg-indigo-50 text-indigo-600', page: 'translator' },
           { icon: History, title: t.home.features.history, color: 'bg-purple-50 text-purple-600', page: 'history' },
           { icon: Wifi, title: t.home.features.offline, color: 'bg-slate-50 text-slate-600', page: 'home' },
         ].map((feature, i) => (
@@ -218,11 +225,63 @@ const TriageChatPage = () => {
   });
 
   const [messages, setMessages] = useState<{ role: 'bot' | 'user', text: string }[]>([
-    { role: 'bot', text: "What symptoms does the patient have?" }
+    { role: 'bot', text: TRANSLATIONS[language].home.description } // Use translated start message
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  // Helper for language locale
+  const getLocale = (l: Language) => {
+    switch(l) {
+      case Language.HINDI: return 'hi-IN';
+      case Language.KANNADA: return 'kn-IN';
+      case Language.TAMIL: return 'ta-IN';
+      case Language.MALAYALAM: return 'ml-IN';
+      default: return 'en-IN';
+    }
+  };
+
+  const speak = (text: string) => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = getLocale(language);
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+    } else {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Speech recognition not supported in this browser.");
+        return;
+      }
+      
+      const recognition = new SpeechRecognition();
+      recognition.lang = getLocale(language);
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => setIsRecording(true);
+      recognition.onend = () => setIsRecording(false);
+      recognition.onerror = () => setIsRecording(false);
+      
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInput(transcript);
+        handleSendMessage(transcript);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    }
+  };
 
   const handleStartChat = () => {
     if (patient.id && patient.age > 0) {
@@ -230,34 +289,36 @@ const TriageChatPage = () => {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!input.trim()) return;
+  const handleSendMessage = async (textOverride?: string) => {
+    const messageToSend = textOverride || input;
+    if (!messageToSend.trim()) return;
 
-    const userMsg = input;
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setMessages(prev => [...prev, { role: 'user', text: messageToSend }]);
     setInput('');
     setLoading(true);
 
     try {
-      const assessment = await getTriageAssessment(userMsg, patient.age, patient.gender, language);
+      const assessment = await getTriageAssessment(messageToSend, patient.age, patient.gender, language);
       setResult(assessment);
 
       const botMsg = assessment.explanation;
       setMessages(prev => [...prev, { role: 'bot', text: botMsg }]);
+      speak(botMsg); // Voice response
 
-      // Save to history
       addTriageRecord({
         id: Math.random().toString(36).substr(2, 9),
         patientId: patient.id,
         date: new Date().toISOString(),
-        symptoms: [userMsg],
+        symptoms: [messageToSend],
         category: assessment.category,
         notes: assessment.explanation,
         isRedFlag: assessment.isRedFlag
       });
 
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'bot', text: "Sorry, I encountered an error. Please try again." }]);
+      const errorMsg = t.common.error;
+      setMessages(prev => [...prev, { role: 'bot', text: errorMsg }]);
+      speak(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -310,7 +371,7 @@ const TriageChatPage = () => {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-slate-50">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-transparent">
       {result?.isRedFlag && (
         <div className="bg-red-600 text-white p-4 text-center font-bold animate-pulse">
           {t.triage.redFlagWarning}
@@ -322,10 +383,20 @@ const TriageChatPage = () => {
           <div key={i} className={cn(
             "max-w-[85%] p-4 rounded-2xl text-lg",
             msg.role === 'bot'
-              ? "bg-white text-slate-800 self-start border border-slate-200 rounded-tl-none"
-              : "bg-blue-600 text-white self-end ml-auto rounded-tr-none"
+              ? "bg-white text-slate-800 self-start border border-slate-200 rounded-tl-none shadow-sm"
+              : "bg-blue-600 text-white self-end ml-auto rounded-tr-none shadow-md"
           )}>
-            {msg.text}
+            <div className="flex justify-between items-start gap-2">
+              <span className="flex-1">{msg.text}</span>
+              {msg.role === 'bot' && (
+                <button 
+                  onClick={() => speak(msg.text)} 
+                  className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                >
+                  <Volume2 size={16} />
+                </button>
+              )}
+            </div>
           </div>
         ))}
         {loading && (
@@ -335,22 +406,35 @@ const TriageChatPage = () => {
         )}
       </div>
 
-      <div className="p-4 bg-white border-t border-slate-200 flex gap-2">
-        <input
-          type="text"
-          className="flex-1 p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder={t.triage.placeholder}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-        />
-        <Button onClick={handleSendMessage} className="px-4" disabled={loading}>
-          Send
-        </Button>
+      <div className="p-4 bg-white border-t border-slate-200 space-y-4">
+        <div className="flex gap-2">
+          <button
+            onClick={toggleRecording}
+            className={cn(
+              "p-3 rounded-xl transition-all active:scale-90 flex items-center justify-center",
+              isRecording 
+                ? "bg-red-100 text-red-600 animate-pulse ring-2 ring-red-500" 
+                : "bg-blue-50 text-blue-600 hover:bg-blue-100"
+            )}
+          >
+            {isRecording ? <MicOff /> : <Mic />}
+          </button>
+          <input
+            type="text"
+            className="flex-1 p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+            placeholder={isRecording ? "Listening..." : t.triage.placeholder}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+          />
+          <Button onClick={() => handleSendMessage()} className="px-5 shadow-lg" disabled={loading}>
+            {t.common.submit}
+          </Button>
+        </div>
       </div>
 
       {result && (
-        <div className="p-4 bg-white border-t border-slate-200 flex justify-between items-center">
+        <div className="p-4 bg-white border-t border-slate-200 flex justify-between items-center shadow-inner">
           <div className="flex items-center gap-2">
             <div className={cn(
               "w-4 h-4 rounded-full",
@@ -358,7 +442,7 @@ const TriageChatPage = () => {
             )} />
             <span className="font-bold text-slate-700">{result.category}</span>
           </div>
-          <Button variant="outline" onClick={() => setCurrentPage('home')}>Finish</Button>
+          <Button variant="outline" className="text-sm py-2" onClick={() => setCurrentPage('home')}>{t.common.finish}</Button>
         </div>
       )}
     </div>
@@ -367,6 +451,7 @@ const TriageChatPage = () => {
 
 const PhotoAnalysisPage = () => {
   const { language } = useAppContext();
+  const t = TRANSLATIONS[language];
   const [image, setImage] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -397,7 +482,7 @@ const PhotoAnalysisPage = () => {
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold text-slate-800">Photo Symptom Analysis</h2>
+      <h2 className="text-2xl font-bold text-slate-800">{t.photo.title}</h2>
       <Card className="space-y-4">
         <div
           className="border-2 border-dashed border-slate-200 rounded-2xl h-64 flex flex-col items-center justify-center bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors relative overflow-hidden"
@@ -408,19 +493,19 @@ const PhotoAnalysisPage = () => {
           ) : (
             <>
               <Camera className="w-12 h-12 text-slate-400 mb-2" />
-              <p className="text-slate-500 font-medium">Click to upload or take photo</p>
+              <p className="text-slate-500 font-medium">{t.photo.subtitle}</p>
             </>
           )}
           <input id="photo-input" type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
         </div>
 
         <Button onClick={handleAnalyze} className="w-full" disabled={!image || loading}>
-          {loading ? "Analyzing..." : "Analyze Photo"}
+          {loading ? t.photo.analyzing : t.photo.analyzeBtn}
         </Button>
 
         {analysis && (
           <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-blue-900">
-            <h3 className="font-bold mb-2">AI Assessment:</h3>
+            <h3 className="font-bold mb-2">{t.photo.resultTitle}:</h3>
             <p className="text-lg leading-relaxed">{analysis}</p>
           </div>
         )}
@@ -430,6 +515,8 @@ const PhotoAnalysisPage = () => {
 };
 
 const HospitalLocatorPage = () => {
+  const { language } = useAppContext();
+  const t = TRANSLATIONS[language];
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -463,7 +550,7 @@ const HospitalLocatorPage = () => {
         }
       } catch (err: any) {
         console.error("Error fetching hospitals:", err);
-        setError(err.message || 'An error occurred while fetching hospitals.');
+        setError(err.message || t.common.error);
       } finally {
         setLoading(false);
       }
@@ -484,16 +571,16 @@ const HospitalLocatorPage = () => {
     } else {
       setError("Geolocation is not supported by your browser.");
     }
-  }, []);
+  }, [language, t.common.error]);
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold text-slate-800">Nearest Facilities</h2>
+      <h2 className="text-2xl font-bold text-slate-800">{t.locator.title}</h2>
 
       {loading && (
         <div className="text-center p-8">
           <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-slate-600 font-medium">Finding nearby hospitals...</p>
+          <p className="text-slate-600 font-medium">{t.locator.finding}</p>
         </div>
       )}
 
@@ -505,7 +592,7 @@ const HospitalLocatorPage = () => {
 
       {!loading && !error && hospitals.length === 0 && (
         <div className="text-center p-8 text-slate-600">
-          No hospitals found near your location.
+          {t.locator.noneFound}
         </div>
       )}
 
@@ -522,19 +609,18 @@ const HospitalLocatorPage = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  {/* <p className="font-bold text-blue-600">{h.distance}</p> */}
-                  {h.is24h && <span className="text-xs text-emerald-600 font-bold">Open Now</span>}
+                  {h.is24h && <span className="text-xs text-emerald-600 font-bold">{t.locator.openNow}</span>}
                 </div>
               </div>
               <div className="flex gap-2 mt-2">
                 <Button variant="outline" className="flex-1 py-2 text-sm" onClick={() => window.open(`tel:${h.phone}`)} disabled={h.phone === 'N/A'}>
-                  {h.phone !== 'N/A' ? `Call ${h.phone}` : 'No Phone'}
+                  {h.phone !== 'N/A' ? `${t.locator.call} ${h.phone}` : t.locator.noPhone}
                 </Button>
                 <Button
                   className="flex-1 py-2 text-sm"
                   onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}`)}
                 >
-                  Directions
+                  {t.locator.directions}
                 </Button>
               </div>
             </Card>
@@ -546,17 +632,18 @@ const HospitalLocatorPage = () => {
 };
 
 const HistoryPage = () => {
-  const { triageHistory } = useAppContext();
+  const { language, triageHistory } = useAppContext();
+  const t = TRANSLATIONS[language];
   const [search, setSearch] = useState('');
 
   const filtered = triageHistory.filter(h => h.patientId.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold text-slate-800">Patient History</h2>
+      <h2 className="text-2xl font-bold text-slate-800">{t.history.title}</h2>
       <input
         type="text"
-        placeholder="Search by Patient ID..."
+        placeholder={t.history.searchPlaceholder}
         className="w-full p-4 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -578,7 +665,7 @@ const HistoryPage = () => {
             <p className="text-sm text-slate-600 line-clamp-2">{h.notes}</p>
           </Card>
         )) : (
-          <p className="text-center text-slate-500 py-12">No records found.</p>
+          <p className="text-center text-slate-500 py-12">{t.history.noRecords}</p>
         )}
       </div>
     </div>
@@ -586,6 +673,8 @@ const HistoryPage = () => {
 };
 
 const SupervisorDashboard = () => {
+  const { language } = useAppContext();
+  const t = TRANSLATIONS[language];
   const data = [
     { name: 'Mon', triages: 12, referrals: 2 },
     { name: 'Tue', triages: 18, referrals: 5 },
@@ -597,21 +686,21 @@ const SupervisorDashboard = () => {
   ];
 
   const pieData = [
-    { name: 'Home Care', value: 65, color: '#10b981' },
-    { name: 'PHC Visit', value: 25, color: '#f59e0b' },
-    { name: 'Hospital Referral', value: 10, color: '#ef4444' },
+    { name: t.dashboard.homeCare, value: 65, color: '#10b981' },
+    { name: t.triage.startChat, value: 25, color: '#f59e0b' }, // Using triage label for PHC
+    { name: t.dashboard.referrals, value: 10, color: '#ef4444' },
   ];
 
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold text-slate-800">Supervisor Dashboard</h2>
+      <h2 className="text-2xl font-bold text-slate-800">{t.dashboard.title}</h2>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Triages', value: '105', color: 'text-blue-600' },
-          { label: 'Referrals', value: '25', color: 'text-red-600' },
-          { label: 'Home Care', value: '80', color: 'text-emerald-600' },
-          { label: 'Referral Rate', value: '23.8%', color: 'text-orange-600' },
+          { label: t.dashboard.totalTriages, value: '105', color: 'text-blue-600' },
+          { label: t.dashboard.referrals, value: '25', color: 'text-red-600' },
+          { label: t.dashboard.homeCare, value: '80', color: 'text-emerald-600' },
+          { label: t.dashboard.referralRate, value: '23.8%', color: 'text-orange-600' },
         ].map((stat, i) => (
           <Card key={i} className="p-4 text-center">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{stat.label}</p>
@@ -622,7 +711,7 @@ const SupervisorDashboard = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="h-80">
-          <h3 className="font-bold text-slate-800 mb-4">Daily Triage Count</h3>
+          <h3 className="font-bold text-slate-800 mb-4">{t.dashboard.dailyChart}</h3>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -636,7 +725,7 @@ const SupervisorDashboard = () => {
         </Card>
 
         <Card className="h-80">
-          <h3 className="font-bold text-slate-800 mb-4">Referral Distribution</h3>
+          <h3 className="font-bold text-slate-800 mb-4">{t.dashboard.distributionChart}</h3>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
@@ -667,7 +756,7 @@ const SupervisorDashboard = () => {
       </div>
 
       <Card className="space-y-4">
-        <h3 className="font-bold text-slate-800">Alerts & Patterns</h3>
+        <h3 className="font-bold text-slate-800">{t.dashboard.alertsTitle}</h3>
         <div className="p-4 bg-orange-50 border border-orange-100 rounded-xl flex gap-3">
           <div className="bg-orange-500 p-2 rounded-lg h-fit">
             <BarChart3 className="text-white w-5 h-5" />
@@ -683,6 +772,130 @@ const SupervisorDashboard = () => {
 };
 
 // --- Main App ---
+
+const TranslatorPage = () => {
+  const { language } = useAppContext();
+  const t = TRANSLATIONS[language];
+  const [inputText, setInputText] = useState('');
+  const [translatedText, setTranslatedText] = useState('');
+  const [toLanguage, setToLanguage] = useState<Language>(Language.ENGLISH);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const getLocale = (l: Language) => {
+    switch(l) {
+      case Language.HINDI: return 'hi-IN';
+      case Language.KANNADA: return 'kn-IN';
+      case Language.TAMIL: return 'ta-IN';
+      case Language.MALAYALAM: return 'ml-IN';
+      default: return 'en-IN';
+    }
+  };
+
+  const handleTranslate = async (textToTranslate: string) => {
+    if (!textToTranslate.trim()) return;
+    setIsTranslating(true);
+    try {
+      const result = await translateText(textToTranslate, language, toLanguage);
+      setTranslatedText(result);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const speak = (text: string, lang: Language) => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = getLocale(lang);
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+    } else {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      if (!SpeechRecognition) return;
+      const recognition = new SpeechRecognition();
+      recognition.lang = getLocale(language);
+      recognition.onstart = () => setIsRecording(true);
+      recognition.onend = () => setIsRecording(false);
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInputText(transcript);
+        handleTranslate(transcript);
+      };
+      recognitionRef.current = recognition;
+      recognition.start();
+    }
+  };
+
+  return (
+    <div className="p-4 max-w-xl mx-auto space-y-6">
+      <h2 className="text-2xl font-bold text-slate-800">{t.translator.title}</h2>
+      <Card className="space-y-4">
+        <div className="flex gap-4 items-center">
+            <div className="flex-1">
+                <label className="text-xs font-bold text-slate-500 uppercase">{t.translator.from}</label>
+                <div className="p-2 bg-slate-100 rounded-lg text-sm font-bold">{language.toUpperCase()}</div>
+            </div>
+            <div className="flex-1">
+                <label className="text-xs font-bold text-slate-500 uppercase">{t.translator.to}</label>
+                <select 
+                    className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm outline-none font-bold"
+                    value={toLanguage}
+                    onChange={(e) => setToLanguage(e.target.value as Language)}
+                >
+                    {Object.values(Language).map(l => (
+                        <option key={l} value={l}>{l.toUpperCase()}</option>
+                    ))}
+                </select>
+            </div>
+        </div>
+
+        <div className="relative">
+            <textarea
+                className="w-full p-4 border border-slate-200 rounded-2xl h-32 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 resize-none font-medium"
+                placeholder={t.translator.speakHint}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+            />
+            <button 
+                onClick={toggleRecording}
+                className={cn(
+                    "absolute right-4 bottom-4 p-3 rounded-full transition-all",
+                    isRecording ? "bg-red-500 text-white animate-pulse" : "bg-blue-600 text-white shadow-lg"
+                )}
+            >
+                {isRecording ? <MicOff /> : <Mic />}
+            </button>
+        </div>
+
+        <Button onClick={() => handleTranslate(inputText)} className="w-full" disabled={isTranslating || !inputText}>
+            {isTranslating ? t.translator.translating : t.common.submit}
+        </Button>
+
+        {translatedText && (
+            <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl relative">
+                <label className="text-xs font-bold text-emerald-600 uppercase mb-2 block">{t.translator.translatedAlt}</label>
+                <p className="text-lg font-bold text-slate-800 pr-10">{translatedText}</p>
+                <button 
+                    onClick={() => speak(translatedText, toLanguage)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow-sm text-emerald-600 hover:scale-110 transition-transform"
+                >
+                    <Volume2 size={24} />
+                </button>
+            </div>
+        )}
+      </Card>
+    </div>
+  );
+};
 
 export default function App() {
   const [language, setLanguage] = useState<Language>(Language.ENGLISH);
@@ -711,6 +924,7 @@ export default function App() {
       case 'triage': return <TriageChatPage />;
       case 'photo': return <PhotoAnalysisPage />;
       case 'locator': return <HospitalLocatorPage />;
+      case 'translator': return <TranslatorPage />;
       case 'history': return <HistoryPage />;
       case 'dashboard': return <SupervisorDashboard />;
       default: return <HomePage />;
@@ -750,12 +964,13 @@ export default function App() {
         )}
 
         {/* Bottom Navigation for Mobile */}
-        <div className="fixed bottom-0 left-0 w-full bg-white border-t border-slate-100 flex justify-around p-2 sm:hidden z-40">
+        <div className="fixed bottom-0 left-0 w-full bg-white/60 backdrop-blur-lg border-t border-white/20 flex justify-around p-2 sm:hidden z-40">
           {[
             { id: 'home', icon: Home },
             { id: 'triage', icon: MessageSquare },
             { id: 'photo', icon: Camera },
             { id: 'locator', icon: MapPin },
+            { id: 'translator', icon: Volume2 },
             { id: 'history', icon: History },
           ].map(item => (
             <button

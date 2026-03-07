@@ -107,3 +107,22 @@ export async function analyzeSymptomPhoto(base64Image: string, language: Languag
 
   return response.text;
 }
+
+export async function translateText(text: string, from: Language, to: Language) {
+  const isMockMode = !process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "MY_GEMINI_API_KEY";
+  
+  if (isMockMode) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return `(Mock Translate: ${text} from ${from} to ${to})`;
+  }
+
+  const model = "gemini-3-flash-preview";
+  
+  const response = await ai.models.generateContent({
+    model,
+    contents: `Translate the following text from ${from} to ${to}. Only return the translated text without any explanations.
+    Text: ${text}`
+  });
+
+  return response.text;
+}
