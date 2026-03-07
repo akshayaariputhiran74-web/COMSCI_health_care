@@ -7,6 +7,7 @@
 
 @layer base {
   body {
-    @apply bg-slate-50;
+    background-color: lightblue;
+    font-family: Arial, ui-sans-serif, system-ui, sans-serif;
   }
 }

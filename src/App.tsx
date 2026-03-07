@@ -727,7 +727,7 @@ export default function App() {
       triageHistory,
       addTriageRecord
     }}>
-      <div className="min-h-screen bg-white font-sans text-slate-900">
+      <div className="min-h-screen font-sans text-slate-900">
         <Navbar />
         <main className="pb-20">
           <AnimatePresence mode="wait">
