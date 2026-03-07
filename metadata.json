@@ -1,0 +1,5 @@
+{
+  "name": "ASHA AI Health Assistant",
+  "description": "AI-powered Symptom Triage Assistant for ASHA workers in rural India, supporting multi-language triage and emergency detection.",
+  "requestFramePermissions": ["camera", "geolocation"]
+}
