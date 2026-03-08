@@ -23,7 +23,11 @@ export const TRANSLATIONS: Record<Language, Translation> = {
       language: "Preferred Language",
       startChat: "Start Assessment",
       placeholder: "Type symptoms here...",
-      redFlagWarning: "RED FLAG – Immediate Hospital Referral Required"
+      redFlagWarning: "RED FLAG – Immediate Hospital Referral Required",
+      welcome: "Hello! I am your AI Health Assistant. Please describe the symptoms of the patient.",
+      male: "Male",
+      female: "Female",
+      other: "Other"
     },
     results: {
       category: "Triage Category",
@@ -104,7 +108,11 @@ export const TRANSLATIONS: Record<Language, Translation> = {
       language: "पसंदीदा भाषा",
       startChat: "आकलन शुरू करें",
       placeholder: "यहाँ लक्षण लिखें...",
-      redFlagWarning: "🚨 रेड फ्लैग - तत्काल अस्पताल रेफरल आवश्यक"
+      redFlagWarning: "🚨 रेड फ्लैग - तत्काल अस्पताल रेफरल आवश्यक",
+      welcome: "नमस्ते! मैं आपका एआई स्वास्थ्य सहायक हूं। कृपया मरीज के लक्षण बताएं।",
+      male: "पुरुष",
+      female: "महिला",
+      other: "अन्य"
     },
     results: {
       category: "जांच श्रेणी",
@@ -185,7 +193,11 @@ export const TRANSLATIONS: Record<Language, Translation> = {
       language: "ಆದ್ಯತೆಯ ಭಾಷೆ",
       startChat: "ಮೌಲ್ಯಮಾಪನ ಪ್ರಾರಂಭಿಸಿ",
       placeholder: "ಲಕ್ಷಣಗಳನ್ನು ಇಲ್ಲಿ ಟೈಪ್ ಮಾಡಿ...",
-      redFlagWarning: "🚨 ರೆಡ್ ಫ್ಲ್ಯಾಗ್ - ತಕ್ಷಣದ ಆಸ್ಪತ್ರೆ ಉಲ್ಲೇಖ ಅಗತ್ಯವಿದೆ"
+      redFlagWarning: "🚨 ರೆಡ್ ಫ್ಲ್ಯಾಗ್ - ತಕ್ಷಣದ ಆಸ್ಪತ್ರೆ ಉಲ್ಲೇಖ ಅಗತ್ಯವಿದೆ",
+      welcome: "ನಮಸ್ಕಾರ! ನಾನು ನಿಮ್ಮ ಎಐ ಆರೋಗ್ಯ ಸಹಾಯಕ. ದಯವಿಟ್ಟು ರೋಗಿಯ ಲಕ್ಷಣಗಳನ್ನು ವಿವರಿಸಿ.",
+      male: "ಪುರುಷ",
+      female: "ಮಹಿಳೆ",
+      other: "ಇತರೆ"
     },
     results: {
       category: "ತಪಾಸಣೆ ವರ್ಗ",
@@ -266,7 +278,11 @@ export const TRANSLATIONS: Record<Language, Translation> = {
       language: "விருப்பமான மொழி",
       startChat: "மதிப்பீட்டைத் தொடங்கு",
       placeholder: "அறிகுறிகளை இங்கே தட்டச்சு செய்க...",
-      redFlagWarning: "🚨 ரெட் பிளாக் - உடனடி மருத்துவமனை பரிந்துரை தேவை"
+      redFlagWarning: "🚨 ரெட் பிளாக் - உடனடி மருத்துவமனை பரிந்துரை தேவை",
+      welcome: "வணக்கம்! நான் உங்கள் ஏஐ சுகாதார உதவியாளர். நோயாளியின் அறிகுறிகளை விவரிக்கவும்.",
+      male: "ஆண்",
+      female: "பெண்",
+      other: "மற்றவை"
     },
     results: {
       category: "மதிப்பீடு வகை",
@@ -347,7 +363,11 @@ export const TRANSLATIONS: Record<Language, Translation> = {
       language: "ഭാഷ",
       startChat: "പരിശോധന തുടങ്ങുക",
       placeholder: "ലക്ഷണങ്ങൾ ഇവിടെ എഴുതുക...",
-      redFlagWarning: "🚨 റെഡ് ഫ്ലാഗ് - ഉടൻ ആശുപത്രിയിൽ എത്തിക്കുക"
+      redFlagWarning: "🚨 റെഡ് ഫ്ലാഗ് - ഉടൻ ആശുപത്രിയിൽ എത്തിക്കുക",
+      welcome: "നമസ്കാരം! ഞാൻ നിങ്ങളുടെ എഐ ആരോഗ്യ സഹായിയാണ്. ദയവായി രോഗിയുടെ ലക്ഷണങ്ങൾ വിവരിക്കുക.",
+      male: "പുരുഷൻ",
+      female: "സ്ത്രീ",
+      other: "മറ്റുള്ളവ"
     },
     results: {
       category: "പരിശോധനാ വിഭാഗം",

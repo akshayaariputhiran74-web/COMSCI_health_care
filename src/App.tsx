@@ -162,7 +162,52 @@ const Navbar = () => {
   );
 };
 
-// --- Pages ---
+// Helper for language locale moved to component scope or shared
+const getLocale = (l: Language) => {
+  switch(l) {
+    case Language.HINDI: return 'hi-IN';
+    case Language.KANNADA: return 'kn-IN';
+    case Language.TAMIL: return 'ta-IN';
+    case Language.MALAYALAM: return 'ml-IN';
+    default: return 'en-IN';
+  }
+};
+
+const speakText = (text: string, lang: Language) => {
+  if (!('speechSynthesis' in window)) return;
+  
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+  
+  const locale = getLocale(lang);
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = locale;
+  utterance.rate = 0.9;
+  utterance.pitch = 1.0;
+  
+  // Select a better voice if available
+  const voices = window.speechSynthesis.getVoices();
+  
+  // Strategy: 
+  // 1. Try to find a high-quality Google voice for the specific language
+  // 2. Try to find any voice matching the exact locale
+  // 3. Try to find any voice matching the language code
+  let voice = voices.find(v => (v.name.includes('Google') || v.name.includes('Natural')) && v.lang.startsWith(locale.split('-')[0]));
+  
+  if (!voice) {
+    voice = voices.find(v => v.lang === locale || v.lang === locale.replace('-', '_'));
+  }
+  
+  if (!voice) {
+    voice = voices.find(v => v.lang.startsWith(locale.split('-')[0]));
+  }
+  
+  if (voice) {
+    utterance.voice = voice;
+  }
+  
+  window.speechSynthesis.speak(utterance);
+};
 
 const HomePage = () => {
   const { setCurrentPage, language } = useAppContext();
@@ -224,33 +269,28 @@ const TriageChatPage = () => {
     language: language
   });
 
-  const [messages, setMessages] = useState<{ role: 'bot' | 'user', text: string }[]>([
-    { role: 'bot', text: TRANSLATIONS[language].home.description } // Use translated start message
-  ]);
+  const [messages, setMessages] = useState<{ role: 'bot' | 'user', text: string }[]>([]);
+
+  useEffect(() => {
+    if (messages.length <= 1) {
+      setMessages([{ role: 'bot', text: TRANSLATIONS[language].triage.welcome }]);
+    }
+  }, [language]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // Helper for language locale
-  const getLocale = (l: Language) => {
-    switch(l) {
-      case Language.HINDI: return 'hi-IN';
-      case Language.KANNADA: return 'kn-IN';
-      case Language.TAMIL: return 'ta-IN';
-      case Language.MALAYALAM: return 'ml-IN';
-      default: return 'en-IN';
-    }
-  };
 
-  const speak = (text: string) => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = getLocale(language);
-      window.speechSynthesis.speak(utterance);
+
+  const speak = (text: string) => speakText(text, language);
+
+  useEffect(() => {
+    if (step === 'chat' && messages.length === 1) {
+      speak(messages[0].text);
     }
-  };
+  }, [step, language]);
 
   const toggleRecording = () => {
     if (isRecording) {
@@ -301,9 +341,20 @@ const TriageChatPage = () => {
       const assessment = await getTriageAssessment(messageToSend, patient.age, patient.gender, language);
       setResult(assessment);
 
+      // 1. Add explanation
       const botMsg = assessment.explanation;
       setMessages(prev => [...prev, { role: 'bot', text: botMsg }]);
-      speak(botMsg); // Voice response
+      speak(botMsg);
+
+      // 2. Add follow-up questions as separate messages with a slight delay
+      if (assessment.followUpQuestions && assessment.followUpQuestions.length > 0) {
+        for (const q of assessment.followUpQuestions) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          setMessages(prev => [...prev, { role: 'bot', text: q }]);
+          // We don't speak all questions automatically to avoid audio overlap, 
+          // but we could speak the first one.
+        }
+      }
 
       addTriageRecord({
         id: Math.random().toString(36).substr(2, 9),
@@ -356,9 +407,9 @@ const TriageChatPage = () => {
                 value={patient.gender}
                 onChange={(e) => setPatient({ ...patient, gender: e.target.value as any })}
               >
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
+                <option value="Male">{t.triage.male}</option>
+                <option value="Female">{t.triage.female}</option>
+                <option value="Other">{t.triage.other}</option>
               </select>
             </div>
           </div>
@@ -526,7 +577,7 @@ const HospitalLocatorPage = () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`http://localhost:3001/api/hospitals?lat=${lat}&lng=${lng}`);
+        const response = await fetch(`/api/hospitals?lat=${lat}&lng=${lng}`);
         if (!response.ok) {
           throw new Error('Failed to fetch hospitals from server');
         }
@@ -783,15 +834,7 @@ const TranslatorPage = () => {
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  const getLocale = (l: Language) => {
-    switch(l) {
-      case Language.HINDI: return 'hi-IN';
-      case Language.KANNADA: return 'kn-IN';
-      case Language.TAMIL: return 'ta-IN';
-      case Language.MALAYALAM: return 'ml-IN';
-      default: return 'en-IN';
-    }
-  };
+
 
   const handleTranslate = async (textToTranslate: string) => {
     if (!textToTranslate.trim()) return;
@@ -806,13 +849,7 @@ const TranslatorPage = () => {
     }
   };
 
-  const speak = (text: string, lang: Language) => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = getLocale(lang);
-      window.speechSynthesis.speak(utterance);
-    }
-  };
+  const speak = (text: string, lang: Language) => speakText(text, lang);
 
   const toggleRecording = () => {
     if (isRecording) {
@@ -908,6 +945,15 @@ export default function App() {
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+
+    // Force load voices for speech synthesis
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+      }
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);

@@ -6,7 +6,7 @@ dotenv.config({ path: ".env.local" });
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 async function testTriageAssessment() {
-  const model = "gemini-3-flash-preview";
+  const model = "gemini-2.0-flash";
   
   try {
     const response = await ai.models.generateContent({

@@ -8,7 +8,7 @@ import * as dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
 const app = express();
-const port = 3001;
+const port = 4000;
 
 app.use(cors());
 app.use(bodyParser.json());

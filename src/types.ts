@@ -60,6 +60,10 @@ export interface Translation {
     startChat: string;
     placeholder: string;
     redFlagWarning: string;
+    welcome: string;
+    male: string;
+    female: string;
+    other: string;
   };
   results: {
     category: string;
